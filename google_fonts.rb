@@ -1,9 +1,10 @@
 #!/usr/bin/ruby -w
 
 require 'net/http'
+require 'fileutils'
 require 'pp'
 
-$output_file = 'fonts.css'
+$output = 'fonts.css'
 $zip = false
 
 ## List of fonts to download from google.
@@ -29,31 +30,40 @@ loop { case ARGV[0]
     else break
 end; }
 
+## Deep merge 2 hashes
+public
+def deep_merge(p)
+    m = proc { |key,v,vv| v.class == Hash && vv.class == Hash ? v.merge(vv, &m) : vv }
+    merge(p, &m)
+end
 
 class CSS
-    @tmp = './tmp_fonts' ## tmp dir to store fonts
+    @tmp = '' ## tmp dir to store fonts
+    @template = '' ## css file template
+    @output = '' ## output.css
     @fonts = [] ## fonts list to download
     @url = {} ## fonts path.. usually meant for google but sent as constructor args
 
     def initialize(params = {})
         @fonts = params.fetch(:fonts, [])
         @url = params.fetch(:url, {})
+        @template = params.fetch(:template, 'stylesheet.tpl')
+        @tmp = params.fetch(:tmp, './tmp_fonts')
+        @output = params.fetch(:output, 'fonts.css')
     end
+
 
     def load
         @fonts.each do |font|
-            raw_css = {};
-            getTypes().each do |type, prop|
-                stylesheet = getStyle(font, type)
-                font_details = parseCss(stylesheet, type)
-                raw_css[type] = {
-                    'raw' => stylesheet
-                }
+            f = {} ## font and all weights stored here
 
-                pp font_details
+            getTypes().each do |ext, prop|
+                stylesheet = getStyle(font, ext)
+                font_details = parseCss(stylesheet, ext)
+                f = f.deep_merge(font_details)
             end
 
-            puts raw_css
+            save(@tmp + '/' + @output, get_font_stylesheet(f))
         end
 
         puts 'loading'
@@ -61,8 +71,51 @@ class CSS
 
 
     private
-        ##
-        def parseCss(stylesheet, type)
+        def download_all_fonts(font_file, fonts_list)
+            directory_exists?(File.dirname(font_file))
+            fonts_list.each do |ext, url|
+
+                uri = URI.parse(url)
+                Net::HTTP.start(uri.host, uri.port) do |http|
+                    resp = http.get(uri.to_s)
+
+                    open(font_file + '.' + ext, 'wb') do |file|
+                        file.write(resp.body)
+                    end
+                end
+            end
+
+            puts font_file
+            puts fonts_list
+        end
+
+        def get_font_stylesheet(font)
+            css_text = ''
+            ## iterate combines fonts and weights (fw var is font_weight shorter :P)
+            font.each do |fw, style|
+               css_tpl = getTemplate
+               font_name = name_to_dir(style['font-family'])
+               font_file = 'fonts/' + font_name + '/' + font_name + '_' + style['font-weight']
+
+               {
+                   '{FONT_NAME}' => style['font-family'],
+                   '{FONT_FILE}' => font_file,
+                   '{FONT_WEIGHT}' => style['font-weight'],
+                   '{FONT_STYLE}' => style['font-style'],
+                   '{DATE}' => Time.now.inspect
+               }.each { |k, v| css_tpl.gsub!(k, v) }
+
+               css_text += css_tpl + "\n\n"
+
+               download_all_fonts(@tmp + '/' + font_file, style['src'])
+            end
+
+            return css_text
+        end
+
+
+        ## Extract font-face data from css string
+        def parseCss(stylesheet, ext)
             fonts = {} ## parsed fonts data
             stylesheet.split('@font-face').drop(1).each do |font|
                 family, style, weight = font.scan(/.*font-(weight|style|family): (.*?);/)
@@ -76,7 +129,7 @@ class CSS
                     'font-style' => style,
                     'font-weight' => weight,
                     'src' => {
-                        type => src
+                        ext => src.pop.pop
                     }
                 }
             end
@@ -120,17 +173,42 @@ class CSS
             }
         end
 
+
+        def getTemplate
+            return IO.read(@template)
+        end
+
+
+        ## converts upper case and chars to uniform string
+        def name_to_dir(name)
+            {
+                '+' => '_',
+                ' ' => '_'
+            }.each { |k, v| name.gsub!(k, v) }
+
+            return name.downcase
+        end
+
+
+        def save(file, content)
+            directory_exists?(File.dirname(file))
+
+            return File.write(file, content)
+        end
+
+
+        def directory_exists?(directory_name)
+            FileUtils.mkdir_p(directory_name) unless File.exists?(directory_name)
+
+            return File.directory?(directory_name)
+        end
+
+
         ## Genric way to print verbose
         def log(lvl, text)
             puts "[#{lvl}]: #{text}"
         end
-
-        ## Deep merge 2 hashes
-        def deep_merge(p)
-            m = proc { |key,v,vv| v.class == Hash && vv.class == Hash ? v.merge(vv, &m) : vv }
-            merge(p, &m)
-        end
 end
 
-css = CSS.new(:fonts => fonts, :url => google)
+css = CSS.new(:fonts => fonts, :url => google, :output => $output)
 css.load()
