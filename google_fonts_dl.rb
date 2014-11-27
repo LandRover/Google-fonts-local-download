@@ -57,9 +57,9 @@ class CSS
         @fonts.each do |font|
             f = {} ## font and all weights stored here
 
-            getTypes().each do |ext, prop|
-                stylesheet = getStyle(font, ext)
-                font_details = parseCss(stylesheet, ext)
+            get_types().each do |ext, prop|
+                stylesheet = get_style(font, ext)
+                font_details = parse_css(stylesheet, ext)
                 f = f.deep_merge(font_details)
             end
 
@@ -115,7 +115,7 @@ class CSS
 
 
         ## Extract font-face data from css string
-        def parseCss(stylesheet, ext)
+        def parse_css(stylesheet, ext)
             fonts = {} ## parsed fonts data
             stylesheet.split('@font-face').drop(1).each do |font|
                 family, style, weight = font.scan(/.*font-(weight|style|family): (.*?);/)
@@ -139,12 +139,12 @@ class CSS
 
 
         ## Creates HTTP request and returns CSS string for that user-agent.
-        def getStyle(font, type)
+        def get_style(font, type)
             log('info', "Downloading CSS for font: #{font} and Type: #{type}")
 
             http = Net::HTTP.new(@url['domain'])
             req = Net::HTTP::Get.new(@url['path'] + font, {
-                'User-Agent' => getTypes()[type]['useragent']
+                'User-Agent' => get_types()[type]['useragent']
             })
             response = http.request(req)
 
@@ -152,7 +152,7 @@ class CSS
         end
 
         ## Types and useragents mapping
-        def getTypes
+        def get_types
             return {
                 'eot' => {
                     'useragent' => 'Mozilla/4.0 (compatible; MSIE 7.0; Windows NT 5.2; Trident/4.0; .NET CLR 1.1.4322; .NET4.0C; .NET4.0E; .NET CLR 2.0.50727)',
